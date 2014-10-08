@@ -54,7 +54,25 @@ int cfd( int argc, char** args, float *imgU, float *imgV, int *imgDomain, float 
 	else
 		fname = PARAMF;
 
-	read_parameters(fname, &Re, &PI, &GX, &GY, &t_end, &xlength, &ylength, &dt, &dx, &dy, imax, jmax, &alpha, &omg, &tau, &itermax, &eps, &dt_value, &dp );
+	//read_parameters(fname, &Re, &PI, &GX, &GY, &t_end, &xlength, &ylength, &dt, &dx, &dy, imax, jmax, &alpha, &omg, &tau, &itermax, &eps, &dt_value, &dp );
+	
+	Re = 1000;
+	PI = 0.0;
+	GX = 0.0;
+	GY = 0.0;
+	t_end = 10.0;
+	xlength = (float)(imax)/10;
+	ylength = (float)(jmax)/10;
+	dt = 0.05;
+	dx = xlength / (float)(imax);
+	dy = ylength / (float)(jmax);
+	alpha = 0.9;
+	omg = 1.7;
+	tau = 0.5;
+	//itermax = 500;
+	//eps = 0.001;
+	dt_value = 1.0;
+	dp = 4.0;
 	
 	fluid_cells = imax*jmax;
 
@@ -91,7 +109,7 @@ int cfd( int argc, char** args, float *imgU, float *imgV, int *imgDomain, float 
 		calculate_rs( dt, dx, dy, imax, jmax, F, G, RS, Flag );
 
 		it = 0;
-		res = 10000.0;
+		//res = 10000.0;
 
 	float *d_P, *d_RS;
 	int *d_Flag;
@@ -124,8 +142,8 @@ int cfd( int argc, char** args, float *imgU, float *imgV, int *imgDomain, float 
 
 		printf("[%d: %f] dt: %f, sor iterations: %d \n", n, t, dt, it);
 
-		if( it == itermax )
-		    printf( "    WARNING: Maximum number of iterations reached.\n" );
+		//if( it == itermax )
+		   // printf( "    WARNING: Maximum number of iterations reached.\n" );
 
 		calculate_uv( dt, dx, dy, imax, jmax, U, V, F, G, P, Flag );
 
