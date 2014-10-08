@@ -23,15 +23,15 @@
  */
 void write_vtkFile(const char *szProblem,
 		  int    timeStepNumber,
-		  double xlength,
-                  double ylength,
+		  float xlength,
+                  float ylength,
                   int    imax,
                   int    jmax,
-		  double dx,
-		  double dy,
-                  double **U,
-                  double **V,
-                  double **P);
+		  float dx,
+		  float dy,
+                  float **U,
+                  float **V,
+                  float **P);
 
 /**
  * Method for writing header information in vtk format. 
@@ -45,7 +45,7 @@ void write_vtkFile(const char *szProblem,
  * @author Tobias Neckel
  */
 void write_vtkHeader( FILE *fp, int imax, int jmax, 
-                      double dx, double dy);
+                      float dx, float dy);
 
 /**
  * Method for writing grid coordinate information in vtk format. 
@@ -59,6 +59,6 @@ void write_vtkHeader( FILE *fp, int imax, int jmax,
  * @author Tobias Neckel
  */
 void write_vtkPointCoordinates( FILE *fp, int imax, int jmax, 
-                                double dx, double dy);
+                                float dx, float dy);
 
 #endif

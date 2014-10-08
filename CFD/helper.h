@@ -57,10 +57,10 @@ extern clock_t last_timer_reset;
 
 int min( int a, int b);	       
 int max( int a, int b);
-double fmin( double a, double b);
-double fmax( double a, double b);
+float fmin( float a, float b);
+float fmax( float a, float b);
 
-double fmatrix_max(double ** m, int nrl, int nrh, int ncl, int nch);
+float fmatrix_max(float ** m, int nrl, int nrh, int ncl, int nch);
 
 
 /**
@@ -116,7 +116,7 @@ void  errhandler( int nLine, const char *szFile, const char *szString );
  * READ_INT( "MyFile.dat", imax );
  * READ_STRING( szFile, szProblem );
  */
-#define READ_DOUBLE( szFileName, VarName) read_double( szFileName, #VarName, &(VarName) )
+#define READ_DOUBLE( szFileName, VarName) read_float( szFileName, #VarName, &(VarName) )
 
 /**
  * Reading from a datafile.
@@ -132,7 +132,7 @@ void  errhandler( int nLine, const char *szFile, const char *szString );
 
 void read_string( const char* szFilename, const char* szName, char*  sValue);
 void read_int   ( const char* szFilename, const char* szName, int*    nValue);
-void read_double( const char* szFilename, const char* szName, double*  Value);
+void read_float( const char* szFilename, const char* szName, float*  Value);
 
 
 /**
@@ -188,13 +188,13 @@ void read_double( const char* szFilename, const char* szName, double*  Value);
  */
 void write_matrix( 
   const char* szFileName,
-  double **m,
+  float **m,
   int nrl,
   int nrh,
   int ncl,
   int nch,
-  double xlength,
-  double ylength,	       
+  float xlength,
+  float ylength,	       
   int fFirst 
 );
 
@@ -207,7 +207,7 @@ void write_matrix(
  * @param nch           last row
  */
 void read_matrix( const char* szFileName,	               /* filehandle */
-		  double **m,		       /* matrix */
+		  float **m,		       /* matrix */
 		  int nrl,		       /* first column */
 		  int nrh,		       /* last column */
 		  int ncl,		       /* first row */
@@ -226,7 +226,7 @@ void read_matrix( const char* szFileName,	               /* filehandle */
  *    init_matrix( U , 0, imax+1, 0, jmax+1, 0 );
  *    free_matrix( U,  0, imax+1, 0, jmax+1 );
  */
-double **matrix( int nrl, int nrh, int ncl, int nch );
+float **matrix( int nrl, int nrh, int ncl, int nch );
 /**
  * matrix(...)        storage allocation for a matrix (nrl..nrh, ncl..nch)
  * free_matrix(...)   storage deallocation
@@ -239,7 +239,7 @@ double **matrix( int nrl, int nrh, int ncl, int nch );
  *    init_matrix( U , 0, imax+1, 0, jmax+1, 0 );
  *    free_matrix( U,  0, imax+1, 0, jmax+1 );
  */
-void free_matrix( double **m, int nrl, int nrh, int ncl, int nch );
+void free_matrix( float **m, int nrl, int nrh, int ncl, int nch );
 /**
  * matrix(...)        storage allocation for a matrix (nrl..nrh, ncl..nch)
  * free_matrix(...)   storage deallocation
@@ -252,7 +252,7 @@ void free_matrix( double **m, int nrl, int nrh, int ncl, int nch );
  *    init_matrix( U , 0, imax+1, 0, jmax+1, 0 );
  *    free_matrix( U,  0, imax+1, 0, jmax+1 );
  */
-void init_matrix( double **m, int nrl, int nrh, int ncl, int nch, double a);
+void init_matrix( float **m, int nrl, int nrh, int ncl, int nch, float a);
 
 /**
  * matrix(...)        storage allocation for a matrix (nrl..nrh, ncl..nch)

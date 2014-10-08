@@ -22,9 +22,9 @@
 
 // C Libraries
 
-extern "C"{
+//extern "C"{
     #include "CFD/cfd.h"
-}
+//}  
 
 #include "aux.h"
 #include "functionalities.h"
@@ -32,7 +32,7 @@ extern "C"{
 #include <math.h>
 using namespace std;
 
-// uncomment to use the camera 
+// uncomment to use the camera
 //#define CAMERA
 
 
@@ -53,6 +53,7 @@ int main(int argc, char **argv)
     // return value: getParam("param", ...) returns true if "-param" is specified, and false otherwise
 
 #ifdef CAMERA
+    bool ret;
 #else
     // input image
     string image = "";
@@ -91,6 +92,26 @@ int main(int argc, char **argv)
     int option = 1;
     getParam("option", option, argc, argv);
     cout << "option: " << option << endl;
+
+    // Timestep for anisotropic diffusion
+    float tau = 0.02;
+    getParam("tau", tau, argc, argv);
+    cout << "tau: " << tau << endl;
+    
+    // Theta for sor
+    float sor_theta = 0.7;
+    getParam("sor_theta", sor_theta, argc, argv);
+    cout << "sor_theta: " << sor_theta << endl;
+
+    // Timestep for anisotropic diffusion
+    int aniso_iter = 5;
+    getParam("aniso_iter", aniso_iter, argc, argv);
+    cout << "aniso_iter: " << tau << endl;
+
+    // Full image: 1 - Image without superimposed inpainting domain, 0 - image with ...
+    int  FullImage = 1;
+    getParam("FullImage", FullImage, argc, argv);
+    cout << "FullImage: " << FullImage << endl;
 
 
 
@@ -146,9 +167,9 @@ int main(int argc, char **argv)
     // ### TODO: Change the output image format as needed
     // ###
     // ###
-    //cv::Mat mOut(h,w,mIn.type());  // mOut will have the same number of channels as the input image, nc layers
+    cv::Mat mOut(h,w,mIn.type());  // mOut will have the same number of channels as the input image, nc layers
     //cv::Mat mOut(h,w,CV_32FC3);    // mOut will be a color image, 3 layers
-    cv::Mat mOut(h,w,CV_32FC1);    // mOut will be a grayscale image, 1 layer
+    //cv::Mat mOut(h,w,CV_32FC1);    // mOut will be a grayscale image, 1 layer
     // ### Define your own output images here as needed
 
 
@@ -173,13 +194,14 @@ int main(int argc, char **argv)
 	float *imgVorticity = new float[(size_t)w*h*nc];
 	float *initVorticity = new float[(size_t)w*h*nc];
 	int *imgDomain = new int[(size_t)w*h];
-	// TODO: Temporarly we consider just a grayscale inpainting
-	float *imgU = new float[(size_t)w*h];
-	float *imgV = new float[(size_t)w*h];
+	float *imgU = new float[(size_t)w*h*nc];
+	float *imgV = new float[(size_t)w*h*nc];
 	
-	float *initU = new float[(size_t)w*h];
-	float *initV = new float[(size_t)w*h];
+	float *initU = new float[(size_t)w*h*nc];
+	float *initV = new float[(size_t)w*h*nc];
 
+	// TODO: Introduced temporarily to display the domain
+	float *floatDomain = new float[(size_t)w*h];
 
     // For camera mode: Make a loop to read in camera frames
 #ifdef CAMERA
@@ -189,7 +211,7 @@ int main(int argc, char **argv)
     while (cv::waitKey(30) < 0)
     {
     // Get camera image
-    camera >> mIn;convert_layered_to_mat_int
+    camera >> mIn;//convert_layered_to_mat_int
     // convert to float representation (opencv loads image values as single bytes by default)
     mIn.convertTo(mIn,CV_32F);
     // convert range of each channel to [0,1] (opencv default is [0,255])
@@ -213,67 +235,53 @@ int main(int argc, char **argv)
     // ###
     // ###
 
-	int n = w*h*nc, n2=w*h;
+    int n = w*h*nc; 
 
-for (int j=0; j<iter; j++)
+//===============================================================================================//
+// TEST RGB transformation - It returns a 3-channel picture.
+// In the algorithm we are working with 1-channel picture. 
+// We have to execute the algorithm three times and to combine the pictures at the end.
+    
+//     forward_color_transf( imgIn, imgOut, w, h, nc );  
+//     inverse_color_transf( imgOut, imgIn, w, h, nc );
+    
+//===============================================================================================//
+
+forward_color_transf( imgIn, imgIn, w, h, nc ); 
+
+// Trying to do everything on GPU
+
+float *gpu_initVorticity, *gpu_Vorticity, *gpu_Mask, *gpu_v1, *gpu_v2, *gpu_U, *gpu_V;;
+int *gpu_Domain;
+
+// Allocate GPU memory
+cudaMalloc(&gpu_initVorticity, n*sizeof(float)); CUDA_CHECK;
+cudaMalloc(&gpu_Vorticity, n*sizeof(float)); CUDA_CHECK;
+cudaMalloc(&gpu_Mask, w*h*sizeof(float));CUDA_CHECK;
+cudaMalloc(&gpu_v1, n*sizeof(float));CUDA_CHECK;
+cudaMalloc(&gpu_v2, n*sizeof(float));CUDA_CHECK;
+cudaMalloc(&gpu_U, n*sizeof(float)); CUDA_CHECK;
+cudaMalloc(&gpu_V, n*sizeof(float)); CUDA_CHECK;
+
+  dim3 block = dim3(128,1,1);
+  
+  dim3 grid = dim3((n + block.x - 1) / block.x, 1, 1);
+
+if (option == 0)
 {
+  for (int ind=0; ind<n; ind++)
+    {
+	    imgVorticity[ind] = 0.0f;
+	    initVorticity[ind] = 0.0f;
+    }
+    cudaMemcpy(gpu_initVorticity, initVorticity, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+    cudaMemcpy(gpu_Vorticity, imgVorticity, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+}
 
-	cout << "Global iteration: " << j << endl;
-
-	// Calculate gradient
-
-	// allocate GPU memory
-	float *gpu_In, *gpu_v1, *gpu_v2, *gpu_Out, *gpu_Vorticity, *gpu_U, *gpu_V, *gpu_Mask, *gpu_initVorticity;
-	int *gpu_Domain;
-
-
-	cudaMalloc(&gpu_In, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_v1, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_v2, n*sizeof(float));CUDA_CHECK;
-	
-	// TODO: Temporarly we consider just a grayscale inpainting
-	cudaMalloc(&gpu_U, w*h*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_V, w*h*sizeof(float));CUDA_CHECK;
-
-
-	// copy host memory to device
-	cudaMemcpy(gpu_In, imgIn, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_v1, v1, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_v2, v2, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-
-	// launch kernel
-	dim3 block = dim3(128,1,1);
-	
-	dim3 grid = dim3((n + block.x - 1) / block.x, 1, 1);
-	global_grad <<<grid,block>>> (gpu_In, gpu_v1, gpu_v2, w, h, nc, n);
-	//global_norm <<<grid,block>>> (gpu_v1, gpu_V, w, h, w*h);
-	//global_norm <<<grid,block>>> (gpu_v2, gpu_U, w, h, w*h);
-
-	// copy result back to host (CPU) memory
-	cudaMemcpy( v1, gpu_v1, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-	cudaMemcpy( v2, gpu_v2, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-	cudaMemcpy( imgU, gpu_v2, w*h * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-	cudaMemcpy( imgV, gpu_v1, w*h * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-
-	// free device (GPU) memory
-	cudaFree(gpu_In);CUDA_CHECK;
-	cudaFree(gpu_v1);CUDA_CHECK;
-	cudaFree(gpu_v2);CUDA_CHECK;
-	cudaFree(gpu_U);CUDA_CHECK;
-	cudaFree(gpu_V);CUDA_CHECK;
-
-	// Invert the V values according t: V = -dI/dx
-	// TODO: Temporarly we consider just a grayscale inpainting 
-	for (int i=0; i<w*h; i++)
-	{
-		imgV[i] = -imgV[i];
-	}
-	
 
 	// Calculate the inpainting domain	
 	// allocate GPU memory
-
-	cudaMalloc(&gpu_Mask, w*h*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_Mask, w*h*sizeof(float));CUDA_CHECK;
 	cudaMalloc(&gpu_Domain, w*h*sizeof(int));CUDA_CHECK;
 
 	// copy host memory to device
@@ -281,143 +289,248 @@ for (int j=0; j<iter; j++)
 	cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice);CUDA_CHECK;
 
 	// launch kernel
-	global_detect_domain <<<grid,block>>> (gpu_Mask, gpu_Domain, w, h, w*h);
+	global_detect_domain1 <<<grid,block>>> (gpu_Mask, gpu_Domain, w, h, w*h);
+	global_detect_domain2 <<<grid,block>>> (gpu_Mask, gpu_Domain, w, h, w*h);
+	global_detect_domain3 <<<grid,block>>> (gpu_Mask, gpu_Domain, w, h, w*h);
 
 	// copy result back to host (CPU) memory
 	cudaMemcpy(imgDomain, gpu_Domain, w*h * sizeof(int), cudaMemcpyDeviceToHost );CUDA_CHECK;
 
 	// free device (GPU) memory
 	cudaFree(gpu_Mask);CUDA_CHECK;
-	cudaFree(gpu_Domain);CUDA_CHECK;
+	//cudaFree(gpu_Domain);CUDA_CHECK;
+	
 
-    timer.end();  float t = timer.get();  // elapsed time in seconds
-    cout << "time: " << t*1000 << " ms" << endl;
+
+	
+
+// Main loop
+
+for (int j=0; j<iter; j++)
+{
+	cout << "Global iteration: " << j << endl;
+	// allocate GPU memory
+	float *gpu_In, *gpu_Out;//, *gpu_U, *gpu_V;// ,*gpu_v1, *gpu_v2;//, *gpu_Vorticity;//, *gpu_Mask; //, *gpu_initVorticity;
+	//int *gpu_Domain;
+
+
+
+if (option == 1)
+{
+
+	// Calculate gradient
+	cudaMalloc(&gpu_In, n*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_v1, n*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_v2, n*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_Domain, w*h*sizeof(int));CUDA_CHECK;
+	
+	//cudaMalloc(&gpu_U, n*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_V, n*sizeof(float));CUDA_CHECK;
+
+
+	// copy host memory to device
+	cudaMemcpy(gpu_In, imgIn, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
+	//cudaMemcpy(gpu_v1, v1, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
+	//cudaMemcpy(gpu_v2, v2, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
+	//cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice);CUDA_CHECK;
+
+	// launch kernel
+	global_grad <<<grid,block>>> (gpu_In, gpu_Domain, gpu_v1, gpu_v2, w, h, nc, n, FullImage);
+
+	// copy result back to host (CPU) memory
+	//cudaMemcpy( v1, gpu_v1, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	//cudaMemcpy( v2, gpu_v2, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	// Invert the V values according t: V = -dI/dx
+	global_reverse_sign <<<grid,block>>> (gpu_v2, n);
+	cudaMemcpy( imgU, gpu_v2, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	cudaMemcpy( imgV, gpu_v1, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+
+	// free device (GPU) memory
+	cudaFree(gpu_In); CUDA_CHECK;
+	//cudaFree(gpu_v1); CUDA_CHECK;
+	//cudaFree(gpu_v2); CUDA_CHECK;
+	//cudaFree(gpu_U); CUDA_CHECK;
+	//cudaFree(gpu_V); CUDA_CHECK;
+	//cudaFree(gpu_Domain); CUDA_CHECK;
+
+// // 	Invert the V values according t: V = -dI/dx
+// // 	TODO: Invert in parallel 
+// 	for (int i=0; i<n; i++)
+// 	{
+// 		//imgV[i] = -imgV[i];
+// 		imgU[i] = -imgU[i];
+// 	}
+
+}	
+
 
 if (option == 1)
 {
     if ( j == 0 )
 	{	
-		// Calculate vorticity	
+	  
+		// Calculate init vorticity	
 		// allocate GPU memory
-
-		cudaMalloc(&gpu_U, n*sizeof(float));CUDA_CHECK;
-		cudaMalloc(&gpu_V, n*sizeof(float));CUDA_CHECK;
-		cudaMalloc(&gpu_Vorticity, n*sizeof(float));CUDA_CHECK;
+		//cudaMalloc(&gpu_U, n*sizeof(float)); CUDA_CHECK;
+		//cudaMalloc(&gpu_V, n*sizeof(float)); CUDA_CHECK;
+		//cudaMalloc(&gpu_Vorticity, n*sizeof(float)); CUDA_CHECK;
+		//cudaMalloc(&gpu_initVorticity, n*sizeof(float)); CUDA_CHECK;
+		//cudaMalloc(&gpu_Domain, w*h*sizeof(int)); CUDA_CHECK;
 
 		// copy host memory to device
-		cudaMemcpy(gpu_U, imgU, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-		cudaMemcpy(gpu_V, imgV, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
+		cudaMemcpy(gpu_U, imgU, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+		cudaMemcpy(gpu_V, imgV, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+		//cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice); CUDA_CHECK;
 
 		// launch kernel
-		global_vorticity <<<grid,block>>> (gpu_U, gpu_V, gpu_Vorticity, w, h, nc, n);
+		global_vorticity <<<grid,block>>> ( gpu_U, gpu_V, gpu_initVorticity, gpu_Domain, w, h, nc, n, FullImage);
 
 		// copy result back to host (CPU) memory
-		cudaMemcpy(initVorticity, gpu_Vorticity, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-		cudaMemcpy(initU, gpu_U, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-		cudaMemcpy(initV, gpu_V, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
+		//cudaMemcpy(initVorticity, gpu_Vorticity, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+		//cudaMemcpy(initVorticity, gpu_initVorticity, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+		cudaMemcpy(initU, gpu_U, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+		cudaMemcpy(initV, gpu_V, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
 
 		// free device (GPU) memory
-		cudaFree(gpu_U);CUDA_CHECK;
-		cudaFree(gpu_V);CUDA_CHECK;
-		cudaFree(gpu_Vorticity);CUDA_CHECK;
+		//cudaFree(gpu_U); CUDA_CHECK;
+		//cudaFree(gpu_V); CUDA_CHECK;
+		//cudaFree(gpu_Vorticity); CUDA_CHECK;
+		//cudaFree(gpu_initVorticity); CUDA_CHECK;
+		//cudaFree(gpu_Domain); CUDA_CHECK;
 
-	}
+	} 
 	// CFD solver
-	cfd( argc, argv, imgU, imgV, imgDomain, initU, initV, w, h, j );
-
+	for (int channel = 0; channel < nc; channel++)
+	{
+		cfd( argc, argv, &(imgU[channel*w*h]), &(imgV[channel*w*h]), imgDomain, &(initU[channel*w*h]), &(initV[channel*w*h]), w, h, j , grid, block);
+	}
 
 	// Calculate vorticity	
 	// allocate GPU memory
 
-	cudaMalloc(&gpu_U, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_V, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_Vorticity, n*sizeof(float));CUDA_CHECK;
+	//cudaMalloc(&gpu_U, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_V, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_Vorticity, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_Domain, w*h*sizeof(int)); CUDA_CHECK;
 
 	// copy host memory to device
-	cudaMemcpy(gpu_U, imgU, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_V, imgV, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
+	cudaMemcpy(gpu_U, imgU, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	cudaMemcpy(gpu_V, imgV, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	//cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice); CUDA_CHECK;
 
 	// launch kernel
-	global_vorticity <<<grid,block>>> (gpu_U, gpu_V, gpu_Vorticity, w, h, nc, n);
+	global_vorticity <<<grid,block>>> ( gpu_U, gpu_V, gpu_Vorticity, gpu_Domain, w, h, nc, n, FullImage);
 
 	// copy result back to host (CPU) memory
-	cudaMemcpy(imgVorticity, gpu_Vorticity, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-
+	//cudaMemcpy(imgVorticity, gpu_Vorticity, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	cudaMemcpy(imgU, gpu_U, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	cudaMemcpy(imgV, gpu_V, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
 
 	// free device (GPU) memory
-	cudaFree(gpu_U);CUDA_CHECK;
-	cudaFree(gpu_V);CUDA_CHECK;
-	cudaFree(gpu_Vorticity);CUDA_CHECK;
+	//cudaFree(gpu_U); CUDA_CHECK;
+	//cudaFree(gpu_V); CUDA_CHECK;
+	//cudaFree(gpu_Vorticity); CUDA_CHECK;
+	//cudaFree(gpu_Domain); CUDA_CHECK;
 }
-else if (option == 0)
+/*else if (option == 0)
 {
-
-for (int ind=0; ind<w*h*nc; ind++)
-{
-	imgVorticity[ind] = 0.0f;
-	initVorticity[ind] = 0.0f;
-}
-
-
-
-}
-	
+  for (int ind=0; ind<n; ind++)
+    {
+	    imgVorticity[ind] = 0.0f;
+	    initVorticity[ind] = 0.0f;
+    }
+}*/
 
     if ( j == 0 )
 	{	
-		for (int ind=0; ind<w*h*nc; ind++)
+		for ( int ind = 0; ind < n; ind++ )
 		{
-			if (imgDomain[ind] == 1)
-			imgIn[ind] = 1.0;
+
+		  int x, y, ch;	
+
+		  ch = (int)(ind) / (int)(w*h);
+		  y = ( ind - ch*w*h ) / w;
+		  x = ( ind - ch*w*h ) % w;
+		  int indDomain = x + w*y;
+
+			if ( imgDomain[indDomain] == 1 )
+				imgIn[ind] = 1.0;
 		}
+		
+		//Display the image with cut inpainting domain
+	       inverse_color_transf( imgIn, imgIn, w, h, nc );
+               convert_layered_to_mat(mIn, imgIn);
+	       forward_color_transf( imgIn, imgIn, w, h, nc ); 
 	}
 
 	// Solve the Poisson equation - update the image
 
-	cudaMalloc(&gpu_Out, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_In, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_Vorticity, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_initVorticity, n*sizeof(float));CUDA_CHECK;
-	cudaMalloc(&gpu_Domain, n*sizeof(int));CUDA_CHECK;
-
+	cudaMalloc(&gpu_Out, n*sizeof(float)); CUDA_CHECK;
+	cudaMalloc(&gpu_In, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_Vorticity, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_initVorticity, n*sizeof(float)); CUDA_CHECK;
+	//cudaMalloc(&gpu_Domain, w*h*sizeof(int)); CUDA_CHECK;
 
 
 	// copy host memory to device
-	cudaMemcpy(gpu_In, imgIn, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_Out, imgIn, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_Vorticity, imgVorticity, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_initVorticity, initVorticity, n*sizeof(float), cudaMemcpyHostToDevice);CUDA_CHECK;
-	cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice);CUDA_CHECK;
+	cudaMemcpy(gpu_In, imgIn, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	cudaMemcpy(gpu_Out, imgIn, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	//cudaMemcpy(gpu_Vorticity, imgVorticity, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	//cudaMemcpy(gpu_initVorticity, initVorticity, n*sizeof(float), cudaMemcpyHostToDevice); CUDA_CHECK;
+	//cudaMemcpy(gpu_Domain, imgDomain, w*h*sizeof(int), cudaMemcpyHostToDevice); CUDA_CHECK;
 
 	// launch kernel
 	for (int i=0; i<poisson; i++)
 	{	
-	global_solve_Poisson <<<grid,block>>> (gpu_In, gpu_In, gpu_initVorticity, gpu_Vorticity, gpu_Domain, w, h, nc, n, 0.7, 1);
-	global_solve_Poisson <<<grid,block>>> (gpu_In, gpu_In, gpu_initVorticity, gpu_Vorticity, gpu_Domain, w, h, nc, n, 0.7, 0);
+	  global_solve_Poisson <<<grid,block>>> (gpu_In, gpu_In, gpu_initVorticity, gpu_Vorticity, gpu_Domain, w, h, nc, n, sor_theta, 1);
+	  global_solve_Poisson <<<grid,block>>> (gpu_In, gpu_In, gpu_initVorticity, gpu_Vorticity, gpu_Domain, w, h, nc, n, sor_theta, 0);
 	}
 	//global_solve_Poisson <<<grid,block>>> (gpu_Out, gpu_In, gpu_Vorticity, gpu_Domain, w, h, nc, n, 0.7, 1);
 
 	// copy result back to host (CPU) memory
-	cudaMemcpy(imgOut, gpu_In, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
-	cudaMemcpy(imgIn, gpu_In, n * sizeof(float), cudaMemcpyDeviceToHost );CUDA_CHECK;
+	cudaMemcpy(imgOut, gpu_In, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
+	cudaMemcpy(imgIn, gpu_In, n * sizeof(float), cudaMemcpyDeviceToHost ); CUDA_CHECK;
 
 	// free device (GPU) memory
-	cudaFree(gpu_Out);CUDA_CHECK;
-	cudaFree(gpu_In);CUDA_CHECK;
-	cudaFree(gpu_initVorticity);CUDA_CHECK;
-	cudaFree(gpu_Vorticity);CUDA_CHECK;
-	cudaFree(gpu_Domain);CUDA_CHECK;
+	cudaFree(gpu_Out); CUDA_CHECK;
+	cudaFree(gpu_In); CUDA_CHECK;
+	//cudaFree(gpu_initVorticity); CUDA_CHECK;
+	//cudaFree(gpu_Vorticity); CUDA_CHECK;
+	//cudaFree(gpu_Domain); CUDA_CHECK;
 
-   // show output image: first convert to interleaved opencv format from the layered raw array
-    convert_layered_to_mat(mOut, imgOut);
-    showImage("Output", mOut, 100+w+40, 100);
+	//if ( j+1 % 10 == 0 ) aniso_diff(imgIn, imgDomain, imgIn, w, h, nc, tau, aniso_iter, grid, block);
+	
 
 }
 
+	// Trying to make it run just on GPU
+	cudaFree(gpu_initVorticity); CUDA_CHECK;
+	cudaFree(gpu_Vorticity); CUDA_CHECK;
+	cudaFree(gpu_Domain);CUDA_CHECK;
+	cudaFree(gpu_v1); CUDA_CHECK;
+	cudaFree(gpu_v2); CUDA_CHECK;
+	cudaFree(gpu_U); CUDA_CHECK;
+	cudaFree(gpu_V); CUDA_CHECK;
+
+
+inverse_color_transf( imgIn, imgOut, w, h, nc );
+
+    timer.end();  float t = timer.get();  // elapsed time in seconds
+    cout << "time: " << t*1000 << " ms" << endl;
 
     // show input image
-    showImage("Input", mIn, 100, 100);  // show at position (x_from_left=100,y_from_above=100)
-
+    //mIn /= 255.f;
+     showImage("Input", mIn, 100, 100);  // show at position (x_from_left=100,y_from_above=100)
+// 
+//     // TODO: Just for diagnostic purposes
+/* 	for (int i=0; i<w*h; i++)
+ 	{
+ 		floatDomain[i] = imgDomain[i]*0.5;
+ 	}
+ 
+     convert_layered_to_mat(mOut, floatDomain);
+     showImage("imgDomain", mOut, 100+w+80, 100);
+    
     // show output image: first convert to interleaved opencv format from the layered raw array
     convert_layered_to_mat(mOut, imgVorticity);
     mOut *=1000;
@@ -426,10 +539,19 @@ for (int ind=0; ind<w*h*nc; ind++)
     convert_layered_to_mat(mOut, imgVorticity);
     mOut *=-1000;
     showImage("Cooling ", mOut, 100+w+80, 100);
- 
 
+    convert_layered_to_mat(mOut, v1);
+    mOut *=1000;
+    showImage("v1 ", mOut, 100+w+80, 100);
 
-
+    convert_layered_to_mat(mOut, v2);
+    mOut *=1000;
+    showImage("v2 ", mOut, 100+w+80, 100);
+*/
+    // show output image: first convert to interleaved opencv format from the layered raw array
+    convert_layered_to_mat(mOut, imgOut);
+    //mOut /= 255.f;
+    showImage("Output", mOut, 100+w+40, 100);
 
     // ### Display your own output images here as needed
 #ifdef CAMERA
@@ -452,6 +574,7 @@ for (int ind=0; ind<w*h*nc; ind++)
     delete[] initU;
     delete[] initV;
     delete[] imgDomain;
+    delete[] floatDomain;
     delete[] v1;
     delete[] v2;
 
@@ -459,7 +582,3 @@ for (int ind=0; ind<w*h*nc; ind++)
     cvDestroyAllWindows();
     return 0;
 }
-
-
-
-

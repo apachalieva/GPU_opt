@@ -103,7 +103,7 @@ void cuda_check(std::string file, int line);
 
 
 // Color transformation 
-int clamp( double x );
+float clamp( double x );
 void forward_color_transf( float *imgRGB, float *imgChrom, int w, int h, int nc );
 void inverse_color_transf( float *imgChrom, float *imgRGB, int w, int h, int nc );
 
